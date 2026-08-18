@@ -4,6 +4,8 @@ import { SeededRng } from "./rng";
 import type {
   AircraftState,
   Handoff,
+  NormalizedNavigationDataset,
+  Procedure,
   SeparationAlert,
   SimulationEvent,
   SimulationState,
@@ -32,6 +34,7 @@ export class SimulationEngine {
 
   load(state: SimulationState): void {
     this.state = structuredClone(state);
+    if (!this.state.navigationData) this.state.navigationData = createDemoScenario(this.state.seed).navigationData;
     this.rng = new SeededRng(this.state.seed);
     this.log("SCENARIO", "Saved scenario restored.");
   }
@@ -68,13 +71,6 @@ export class SimulationEngine {
     this.log("COMMAND", `${aircraft.callsign}: fly heading ${String(aircraft.assignedHeadingDeg || 360).padStart(3, "0")}.`);
   }
 
-  resumeRoute(aircraftId: string): void {
-    const aircraft = this.ownedAircraft(aircraftId);
-    if (!aircraft) return;
-    aircraft.navigationMode = "ROUTE";
-    this.log("COMMAND", `${aircraft.callsign}: resume own navigation.`);
-  }
-
   issueAltitude(aircraftId: string, altitudeFt: number): void {
     const aircraft = this.ownedAircraft(aircraftId);
     if (!aircraft) return;
@@ -87,6 +83,88 @@ export class SimulationEngine {
     if (!aircraft) return;
     aircraft.assignedSpeedKts = clamp(Math.round(speedKts / 5) * 5, aircraft.performance.minSpeedKts, aircraft.performance.maxSpeedKts);
     this.log("COMMAND", `${aircraft.callsign}: speed ${aircraft.assignedSpeedKts} knots.`);
+  }
+
+  resumeRoute(aircraftId: string): void {
+    const aircraft = this.ownedAircraft(aircraftId);
+    if (!aircraft) return;
+    aircraft.navigationMode = "ROUTE";
+    this.pointAircraftAtCurrentRouteTarget(aircraft);
+    this.log("COMMAND", `${aircraft.callsign}: resume own navigation.`);
+  }
+
+  directToWaypoint(aircraftId: string, requestedWaypoint: string): boolean {
+    const aircraft = this.ownedAircraft(aircraftId);
+    if (!aircraft) return false;
+    const target = this.findWaypoint(requestedWaypoint.trim().toUpperCase());
+    if (!target) return false;
+
+    const routeIndex = aircraft.flightPlan.route.findIndex((name) => name === target.name || name === target.id);
+    if (routeIndex >= 0) {
+      aircraft.flightPlan.route = aircraft.flightPlan.route.slice(routeIndex);
+    } else {
+      const procedure = aircraft.flightPlan.procedureId
+        ? this.state.procedures.find((item) => item.id === aircraft.flightPlan.procedureId)
+        : undefined;
+      const procedureRoute = procedure ? this.routeForProcedure(procedure) : [];
+      const procedureIndex = procedureRoute.findIndex((name) => name === target.name || name === target.id);
+      if (procedureIndex >= 0) aircraft.flightPlan.route = procedureRoute.slice(procedureIndex);
+      else {
+        aircraft.flightPlan.route = [target.name];
+        aircraft.flightPlan.procedureId = undefined;
+      }
+    }
+
+    aircraft.nextRouteIndex = 0;
+    aircraft.navigationMode = "ROUTE";
+    aircraft.assignedHeadingDeg = headingTo(aircraft.position, target.position);
+    this.log("COMMAND", `${aircraft.callsign}: direct ${target.name}.`);
+    return true;
+  }
+
+  assignProcedure(aircraftId: string, procedureId: string): boolean {
+    const aircraft = this.ownedAircraft(aircraftId);
+    const procedure = this.state.procedures.find((item) => item.id === procedureId);
+    if (!aircraft || !procedure) return false;
+    const route = this.routeForProcedure(procedure);
+    if (route.length === 0) return false;
+
+    aircraft.flightPlan.procedureId = procedure.id;
+    aircraft.flightPlan.route = route;
+    aircraft.nextRouteIndex = 0;
+    aircraft.navigationMode = "ROUTE";
+    this.pointAircraftAtCurrentRouteTarget(aircraft);
+    this.log("COMMAND", `${aircraft.callsign}: assigned ${procedure.name} ${procedure.type}.`);
+    return true;
+  }
+
+  importNavigationData(dataset: NormalizedNavigationDataset): void {
+    if (!dataset || !Array.isArray(dataset.waypoints) || !Array.isArray(dataset.procedures)) return;
+
+    const customWaypoints = this.state.waypoints.filter((item) => item.source === "CUSTOM");
+    const fallbackWaypoints = this.state.waypoints.filter((item) => item.source !== "CUSTOM" && item.source !== "FAA");
+    const byName = new Map<string, Waypoint>();
+    for (const waypoint of fallbackWaypoints) byName.set(waypoint.name, waypoint);
+    for (const incoming of dataset.waypoints) {
+      const existing = byName.get(incoming.name);
+      byName.set(incoming.name, existing ? { ...incoming, id: existing.id } : incoming);
+    }
+    for (const waypoint of customWaypoints) byName.set(waypoint.name, waypoint);
+    this.state.waypoints = [...byName.values()];
+
+    const customProcedures = this.state.procedures.filter((item) => item.source === "CUSTOM");
+    const fallbackProcedures = this.state.procedures.filter((item) => item.source !== "CUSTOM" && item.source !== "FAA");
+    const procedureMap = new Map<string, Procedure>();
+    for (const procedure of fallbackProcedures) procedureMap.set(procedure.id, procedure);
+    for (const procedure of dataset.procedures) procedureMap.set(procedure.id, procedure);
+    for (const procedure of customProcedures) procedureMap.set(procedure.id, procedure);
+    this.state.procedures = [...procedureMap.values()];
+
+    this.state.navigationData = structuredClone(dataset.meta);
+    this.log(
+      "NAVIGATION",
+      `${dataset.meta.provider} ${dataset.meta.cycle}: ${dataset.meta.waypointCount} waypoints, ${dataset.meta.airwayCount} airways, ${dataset.meta.procedureCount} terminal procedures loaded.`,
+    );
   }
 
   requestNextHandoff(aircraftId: string): void {
@@ -139,7 +217,17 @@ export class SimulationEngine {
     const name = requestedName.trim().toUpperCase();
     if (!waypoint || !/^[A-Z]{5}$/.test(name)) return false;
     if (this.state.waypoints.some((item) => item.id !== id && item.name === name)) return false;
+    const oldName = waypoint.name;
     waypoint.name = name;
+    for (const procedure of this.state.procedures) {
+      for (const leg of procedure.legs) {
+        if (leg.fromFix === oldName) leg.fromFix = name;
+        if (leg.toFix === oldName) leg.toFix = name;
+      }
+    }
+    for (const aircraft of this.state.aircraft) {
+      aircraft.flightPlan.route = aircraft.flightPlan.route.map((fix) => fix === oldName ? name : fix);
+    }
     this.log("WAYPOINT", `Custom waypoint renamed to ${name}.`);
     return true;
   }
@@ -189,7 +277,25 @@ export class SimulationEngine {
   }
 
   private findWaypoint(name: string): Waypoint | undefined {
-    return this.state.waypoints.find((waypoint) => waypoint.name === name || waypoint.id === name);
+    const normalized = name.toUpperCase();
+    return this.state.waypoints.find((waypoint) => waypoint.name === normalized || waypoint.id === normalized);
+  }
+
+  private routeForProcedure(procedure: Procedure): string[] {
+    const route: string[] = [];
+    const firstFrom = procedure.legs[0]?.fromFix;
+    if (firstFrom && this.findWaypoint(firstFrom)) route.push(firstFrom);
+    for (const leg of procedure.legs) {
+      if (!leg.toFix || !this.findWaypoint(leg.toFix)) continue;
+      if (route.at(-1) !== leg.toFix) route.push(leg.toFix);
+    }
+    return route;
+  }
+
+  private pointAircraftAtCurrentRouteTarget(aircraft: AircraftState): void {
+    const targetName = aircraft.flightPlan.route[aircraft.nextRouteIndex];
+    const target = targetName ? this.findWaypoint(targetName) : undefined;
+    if (target) aircraft.assignedHeadingDeg = headingTo(aircraft.position, target.position);
   }
 
   private updateNavigation(aircraft: AircraftState): void {
@@ -226,6 +332,7 @@ export class SimulationEngine {
       if (restriction.type === "WINDOW") aircraft.assignedAltitudeFt = clamp(aircraft.assignedAltitudeFt, restriction.minFt ?? 0, restriction.maxFt ?? 51000);
     }
     if (leg.speedRestriction?.type === "MAXIMUM") aircraft.assignedSpeedKts = Math.min(aircraft.assignedSpeedKts, leg.speedRestriction.knots);
+    if (leg.speedRestriction?.type === "MINIMUM") aircraft.assignedSpeedKts = Math.max(aircraft.assignedSpeedKts, leg.speedRestriction.knots);
     if (leg.speedRestriction?.type === "EXACT") aircraft.assignedSpeedKts = leg.speedRestriction.knots;
   }
 
@@ -363,4 +470,11 @@ export function localToLatLon(position: { x: number; y: number }): { latitude: n
   const latitude = DEMO_CENTER.latitude + position.y / 60;
   const longitude = DEMO_CENTER.longitude + position.x / (60 * Math.cos((DEMO_CENTER.latitude * Math.PI) / 180));
   return { latitude, longitude };
+}
+
+export function latLonToLocal(latitude: number, longitude: number): { x: number; y: number } {
+  return {
+    x: (longitude - DEMO_CENTER.longitude) * 60 * Math.cos((DEMO_CENTER.latitude * Math.PI) / 180),
+    y: (latitude - DEMO_CENTER.latitude) * 60,
+  };
 }
