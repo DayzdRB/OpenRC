@@ -1,0 +1,172 @@
+import type { AircraftPerformance, AircraftState, Procedure, SimulationState, Waypoint } from "./types";
+
+const jet: AircraftPerformance = {
+  turnRateDegPerSec: 2.7,
+  accelerationKtsPerSec: 1.4,
+  decelerationKtsPerSec: 1.8,
+  climbFpm: 2800,
+  descentFpm: 2400,
+  minSpeedKts: 125,
+  maxSpeedKts: 480,
+};
+
+const heavy: AircraftPerformance = {
+  turnRateDegPerSec: 2.2,
+  accelerationKtsPerSec: 1.0,
+  decelerationKtsPerSec: 1.4,
+  climbFpm: 2200,
+  descentFpm: 2100,
+  minSpeedKts: 135,
+  maxSpeedKts: 500,
+};
+
+export const DEMO_CENTER = { latitude: 32.8998, longitude: -97.0403 };
+
+export const demoWaypoints: Waypoint[] = [
+  { id: "KDFW", name: "DFW", position: { x: 0, y: 0 }, latitude: 32.8998, longitude: -97.0403, source: "FAA_DEMO", kind: "AIRPORT" },
+  { id: "JEN", name: "JEN", position: { x: -42, y: -38 }, latitude: 32.16, longitude: -98.18, source: "FAA_DEMO", kind: "VOR" },
+  { id: "MOOSE", name: "MOOSE", position: { x: -28, y: -19 }, latitude: 32.57, longitude: -97.55, source: "FAA_DEMO", kind: "FIX" },
+  { id: "GLENR", name: "GLENR", position: { x: -14, y: -8 }, latitude: 32.76, longitude: -97.30, source: "FAA_DEMO", kind: "FIX" },
+  { id: "NELYN", name: "NELYN", position: { x: 13, y: 14 }, latitude: 33.13, longitude: -96.80, source: "FAA_DEMO", kind: "FIX" },
+  { id: "TRISS", name: "TRISS", position: { x: 29, y: 28 }, latitude: 33.35, longitude: -96.49, source: "FAA_DEMO", kind: "FIX" },
+  { id: "CQY", name: "CQY", position: { x: 47, y: 7 }, latitude: 32.89, longitude: -96.22, source: "FAA_DEMO", kind: "VOR" },
+  { id: "WEST", name: "WEST", position: { x: -72, y: 18 }, latitude: 33.22, longitude: -98.33, source: "SCENARIO", kind: "FIX" },
+  { id: "EAST", name: "EAST", position: { x: 72, y: 18 }, latitude: 33.22, longitude: -95.75, source: "SCENARIO", kind: "FIX" }
+];
+
+export const demoProcedures: Procedure[] = [
+  {
+    id: "JEN9-DEMO",
+    name: "JEN9 DEMO",
+    type: "STAR",
+    source: "FAA_DEMO",
+    immutable: true,
+    legs: [
+      { id: "jen9-1", fromFix: "JEN", toFix: "MOOSE", legType: "TRACK_TO_FIX", altitudeRestriction: { type: "AT_OR_BELOW", maxFt: 12000 }, speedRestriction: { type: "MAXIMUM", knots: 280 } },
+      { id: "jen9-2", fromFix: "MOOSE", toFix: "GLENR", legType: "TRACK_TO_FIX", altitudeRestriction: { type: "AT", minFt: 7000, maxFt: 7000 }, speedRestriction: { type: "MAXIMUM", knots: 240 } },
+      { id: "jen9-3", fromFix: "GLENR", toFix: "KDFW", legType: "TRACK_TO_FIX", altitudeRestriction: { type: "AT_OR_BELOW", maxFt: 4000 }, speedRestriction: { type: "MAXIMUM", knots: 210 } }
+    ]
+  },
+  {
+    id: "NELYN5-DEMO",
+    name: "NELYN5 DEMO",
+    type: "SID",
+    source: "FAA_DEMO",
+    immutable: true,
+    legs: [
+      { id: "nelyn5-1", fromFix: "KDFW", toFix: "NELYN", legType: "TRACK_TO_FIX", altitudeRestriction: { type: "AT_OR_ABOVE", minFt: 5000 } },
+      { id: "nelyn5-2", fromFix: "NELYN", toFix: "TRISS", legType: "TRACK_TO_FIX", altitudeRestriction: { type: "AT_OR_ABOVE", minFt: 10000 } },
+      { id: "nelyn5-3", fromFix: "TRISS", toFix: "JEN", legType: "TRACK_TO_FIX" }
+    ]
+  }
+];
+
+const aircraft: AircraftState[] = [
+  {
+    id: "aal291",
+    callsign: "AAL291",
+    aircraftType: "B738",
+    wakeCategory: "MEDIUM",
+    position: { x: -57, y: -48 },
+    headingDeg: 42,
+    assignedHeadingDeg: 42,
+    altitudeFt: 17000,
+    assignedAltitudeFt: 12000,
+    speedKts: 310,
+    assignedSpeedKts: 280,
+    verticalSpeedFpm: -1600,
+    controllerPositionId: "ZFW_23",
+    flightPhase: "ARRIVAL",
+    navigationMode: "ROUTE",
+    flightPlan: { origin: "KDEN", actualDestination: "KDFW", controllerRelevantDestination: "DFW", entryFix: "JEN", route: ["JEN", "MOOSE", "GLENR", "KDFW"], procedureId: "JEN9-DEMO" },
+    nextRouteIndex: 0,
+    performance: jet
+  },
+  {
+    id: "fdx1205",
+    callsign: "FDX1205",
+    aircraftType: "B763",
+    wakeCategory: "HEAVY",
+    position: { x: -46, y: -22 },
+    headingDeg: 61,
+    assignedHeadingDeg: 61,
+    altitudeFt: 11000,
+    assignedAltitudeFt: 7000,
+    speedKts: 275,
+    assignedSpeedKts: 240,
+    verticalSpeedFpm: -1500,
+    controllerPositionId: "DFW_TRACON",
+    flightPhase: "ARRIVAL",
+    navigationMode: "ROUTE",
+    flightPlan: { origin: "KPHX", actualDestination: "KDFW", controllerRelevantDestination: "DFW", entryFix: "JEN", route: ["MOOSE", "GLENR", "KDFW"], procedureId: "JEN9-DEMO" },
+    nextRouteIndex: 0,
+    performance: heavy
+  },
+  {
+    id: "dal441",
+    callsign: "DAL441",
+    aircraftType: "A321",
+    wakeCategory: "MEDIUM",
+    position: { x: 4, y: 6 },
+    headingDeg: 38,
+    assignedHeadingDeg: 38,
+    altitudeFt: 4200,
+    assignedAltitudeFt: 12000,
+    speedKts: 215,
+    assignedSpeedKts: 280,
+    verticalSpeedFpm: 2300,
+    controllerPositionId: "DFW_TRACON",
+    flightPhase: "DEPARTURE",
+    navigationMode: "ROUTE",
+    flightPlan: { origin: "KDFW", actualDestination: "KATL", controllerRelevantDestination: "JEN", exitFix: "JEN", route: ["NELYN", "TRISS", "JEN"], procedureId: "NELYN5-DEMO" },
+    nextRouteIndex: 0,
+    performance: jet
+  },
+  {
+    id: "ual822",
+    callsign: "UAL822",
+    aircraftType: "B739",
+    wakeCategory: "MEDIUM",
+    position: { x: -65, y: 18 },
+    headingDeg: 90,
+    assignedHeadingDeg: 90,
+    altitudeFt: 33000,
+    assignedAltitudeFt: 33000,
+    speedKts: 450,
+    assignedSpeedKts: 450,
+    verticalSpeedFpm: 0,
+    controllerPositionId: "ZFW_23",
+    flightPhase: "ENROUTE",
+    navigationMode: "ROUTE",
+    flightPlan: { origin: "KDEN", actualDestination: "KATL", controllerRelevantDestination: "CQY", entryFix: "WEST", exitFix: "CQY", route: ["JEN", "CQY", "EAST"] },
+    nextRouteIndex: 0,
+    performance: jet
+  }
+];
+
+export function createDemoScenario(seed = 938224): SimulationState {
+  return {
+    seed,
+    simTimeSec: 0,
+    paused: false,
+    humanPositionId: "DFW_TRACON",
+    positions: [
+      { id: "DFW_GND", facilityId: "KDFW", name: "DFW Ground", type: "GROUND", frequency: "121.850", staffingMode: "AI", adjacentPositions: ["DFW_TWR"], controlledRunways: [], displayProfile: "SURFACE" },
+      { id: "DFW_TWR", facilityId: "KDFW", name: "DFW Tower", type: "TOWER", frequency: "124.150", staffingMode: "AI", adjacentPositions: ["DFW_GND", "DFW_TRACON"], controlledRunways: ["18R"], displayProfile: "LOCAL" },
+      { id: "DFW_TRACON", facilityId: "D10", name: "DFW Approach / Departure", type: "TRACON", frequency: "118.550", staffingMode: "HUMAN", adjacentPositions: ["DFW_TWR", "ZFW_23"], controlledRunways: ["18R"], displayProfile: "STARS" },
+      { id: "ZFW_23", facilityId: "ZFW", name: "Fort Worth Center 23", type: "CENTER", frequency: "132.450", staffingMode: "AI", adjacentPositions: ["DFW_TRACON"], controlledRunways: [], displayProfile: "ERAM" }
+    ],
+    waypoints: structuredClone(demoWaypoints),
+    procedures: structuredClone(demoProcedures),
+    aircraft: structuredClone(aircraft),
+    handoffs: [],
+    alerts: [],
+    terrainMode: "SUBTLE",
+    runwayRestrictions: [
+      { runway: "18R", reason: "HEAVY ARRIVAL WAKE", leadWake: "HEAVY", followWake: "MEDIUM", remainingSec: 72 }
+    ],
+    eventLog: [
+      { id: "scenario-start", atSec: 0, type: "SCENARIO", message: "DFW demo scenario loaded with deterministic seed 938224." }
+    ]
+  };
+}
