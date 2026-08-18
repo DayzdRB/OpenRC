@@ -7,6 +7,7 @@ export type NavigationMode = "ROUTE" | "HEADING";
 export type HandoffStatus = "NONE" | "REQUESTED" | "ACCEPTED" | "FREQUENCY_CHANGE" | "COMPLETED" | "REJECTED";
 export type ProcedureType = "SID" | "STAR" | "APPROACH" | "AIRWAY";
 export type LegType = "DIRECT_TO_FIX" | "TRACK_TO_FIX" | "HEADING" | "VECTOR" | "HOLD" | "COURSE" | "RUNWAY_LEG";
+export type NavigationSource = "FAA" | "FAA_DEMO" | "CUSTOM" | "SCENARIO";
 
 export interface Vec2 {
   x: number;
@@ -31,8 +32,8 @@ export interface Waypoint {
   position: Vec2;
   latitude: number;
   longitude: number;
-  source: "FAA_DEMO" | "CUSTOM" | "SCENARIO";
-  kind: "FIX" | "VOR" | "AIRPORT" | "CUSTOM";
+  source: NavigationSource;
+  kind: "FIX" | "VOR" | "NDB" | "AIRPORT" | "CUSTOM";
 }
 
 export interface AltitudeRestriction {
@@ -62,9 +63,28 @@ export interface Procedure {
   id: string;
   name: string;
   type: ProcedureType;
-  source: "FAA_DEMO" | "CUSTOM" | "SCENARIO";
+  source: NavigationSource;
   immutable: boolean;
   legs: ProcedureLeg[];
+}
+
+export interface NavigationDatasetMeta {
+  provider: "FAA NASR" | "DEMO";
+  cycle: string;
+  effectiveDate?: string;
+  generatedAt?: string;
+  status: "READY" | "FALLBACK" | "UNAVAILABLE";
+  waypointCount: number;
+  procedureCount: number;
+  airwayCount: number;
+  sourceUrls?: string[];
+  diagnostics?: string[];
+}
+
+export interface NormalizedNavigationDataset {
+  meta: NavigationDatasetMeta;
+  waypoints: Waypoint[];
+  procedures: Procedure[];
 }
 
 export interface FlightPlan {
@@ -149,7 +169,7 @@ export interface RunwayRestriction {
 export interface SimulationEvent {
   id: string;
   atSec: number;
-  type: "COMMAND" | "HANDOFF" | "ALERT" | "SCENARIO" | "WAYPOINT";
+  type: "COMMAND" | "HANDOFF" | "ALERT" | "SCENARIO" | "WAYPOINT" | "NAVIGATION";
   message: string;
 }
 
@@ -167,4 +187,5 @@ export interface SimulationState {
   terrainMode: TerrainMode;
   runwayRestrictions: RunwayRestriction[];
   eventLog: SimulationEvent[];
+  navigationData: NavigationDatasetMeta;
 }
