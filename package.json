@@ -1,17 +1,20 @@
 {
   "name": "openrc",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "workspaces": [
     "packages/*"
   ],
   "scripts": {
-    "dev": "next dev --turbopack",
-    "build": "next build",
+    "faa:sync": "node scripts/sync-faa.mjs",
+    "dev": "node scripts/sync-faa.mjs --best-effort && next dev --turbopack",
+    "build": "node scripts/sync-faa.mjs --best-effort && next build",
     "start": "next start"
   },
   "dependencies": {
     "@openrc/simulation": "0.1.0",
+    "csv-parse": "^6.0.0",
+    "fflate": "^0.8.2",
     "next": "^16.0.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0"
