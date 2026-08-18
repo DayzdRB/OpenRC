@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import "./openrc-v02.css";
 
 export const metadata: Metadata = {
   title: "OpenRC — Open Radar Control",
