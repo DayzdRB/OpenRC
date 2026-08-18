@@ -31,7 +31,7 @@ export const demoWaypoints: Waypoint[] = [
   { id: "TRISS", name: "TRISS", position: { x: 29, y: 28 }, latitude: 33.35, longitude: -96.49, source: "FAA_DEMO", kind: "FIX" },
   { id: "CQY", name: "CQY", position: { x: 47, y: 7 }, latitude: 32.89, longitude: -96.22, source: "FAA_DEMO", kind: "VOR" },
   { id: "WEST", name: "WEST", position: { x: -72, y: 18 }, latitude: 33.22, longitude: -98.33, source: "SCENARIO", kind: "FIX" },
-  { id: "EAST", name: "EAST", position: { x: 72, y: 18 }, latitude: 33.22, longitude: -95.75, source: "SCENARIO", kind: "FIX" }
+  { id: "EAST", name: "EAST", position: { x: 72, y: 18 }, latitude: 33.22, longitude: -95.75, source: "SCENARIO", kind: "FIX" },
 ];
 
 export const demoProcedures: Procedure[] = [
@@ -44,8 +44,8 @@ export const demoProcedures: Procedure[] = [
     legs: [
       { id: "jen9-1", fromFix: "JEN", toFix: "MOOSE", legType: "TRACK_TO_FIX", altitudeRestriction: { type: "AT_OR_BELOW", maxFt: 12000 }, speedRestriction: { type: "MAXIMUM", knots: 280 } },
       { id: "jen9-2", fromFix: "MOOSE", toFix: "GLENR", legType: "TRACK_TO_FIX", altitudeRestriction: { type: "AT", minFt: 7000, maxFt: 7000 }, speedRestriction: { type: "MAXIMUM", knots: 240 } },
-      { id: "jen9-3", fromFix: "GLENR", toFix: "KDFW", legType: "TRACK_TO_FIX", altitudeRestriction: { type: "AT_OR_BELOW", maxFt: 4000 }, speedRestriction: { type: "MAXIMUM", knots: 210 } }
-    ]
+      { id: "jen9-3", fromFix: "GLENR", toFix: "DFW", legType: "TRACK_TO_FIX", altitudeRestriction: { type: "AT_OR_BELOW", maxFt: 4000 }, speedRestriction: { type: "MAXIMUM", knots: 210 } },
+    ],
   },
   {
     id: "NELYN5-DEMO",
@@ -54,11 +54,21 @@ export const demoProcedures: Procedure[] = [
     source: "FAA_DEMO",
     immutable: true,
     legs: [
-      { id: "nelyn5-1", fromFix: "KDFW", toFix: "NELYN", legType: "TRACK_TO_FIX", altitudeRestriction: { type: "AT_OR_ABOVE", minFt: 5000 } },
+      { id: "nelyn5-1", fromFix: "DFW", toFix: "NELYN", legType: "TRACK_TO_FIX", altitudeRestriction: { type: "AT_OR_ABOVE", minFt: 5000 } },
       { id: "nelyn5-2", fromFix: "NELYN", toFix: "TRISS", legType: "TRACK_TO_FIX", altitudeRestriction: { type: "AT_OR_ABOVE", minFt: 10000 } },
-      { id: "nelyn5-3", fromFix: "TRISS", toFix: "JEN", legType: "TRACK_TO_FIX" }
-    ]
-  }
+      { id: "nelyn5-3", fromFix: "TRISS", toFix: "JEN", legType: "TRACK_TO_FIX" },
+    ],
+  },
+  {
+    id: "V18-DEMO",
+    name: "V18 DEMO",
+    type: "AIRWAY",
+    source: "FAA_DEMO",
+    immutable: true,
+    legs: [
+      { id: "v18-demo-1", fromFix: "JEN", toFix: "CQY", legType: "TRACK_TO_FIX" },
+    ],
+  },
 ];
 
 const aircraft: AircraftState[] = [
@@ -78,9 +88,9 @@ const aircraft: AircraftState[] = [
     controllerPositionId: "ZFW_23",
     flightPhase: "ARRIVAL",
     navigationMode: "ROUTE",
-    flightPlan: { origin: "KDEN", actualDestination: "KDFW", controllerRelevantDestination: "DFW", entryFix: "JEN", route: ["JEN", "MOOSE", "GLENR", "KDFW"], procedureId: "JEN9-DEMO" },
+    flightPlan: { origin: "KDEN", actualDestination: "KDFW", controllerRelevantDestination: "DFW", entryFix: "JEN", route: ["JEN", "MOOSE", "GLENR", "DFW"], procedureId: "JEN9-DEMO" },
     nextRouteIndex: 0,
-    performance: jet
+    performance: jet,
   },
   {
     id: "fdx1205",
@@ -98,9 +108,9 @@ const aircraft: AircraftState[] = [
     controllerPositionId: "DFW_TRACON",
     flightPhase: "ARRIVAL",
     navigationMode: "ROUTE",
-    flightPlan: { origin: "KPHX", actualDestination: "KDFW", controllerRelevantDestination: "DFW", entryFix: "JEN", route: ["MOOSE", "GLENR", "KDFW"], procedureId: "JEN9-DEMO" },
+    flightPlan: { origin: "KPHX", actualDestination: "KDFW", controllerRelevantDestination: "DFW", entryFix: "JEN", route: ["MOOSE", "GLENR", "DFW"], procedureId: "JEN9-DEMO" },
     nextRouteIndex: 0,
-    performance: heavy
+    performance: heavy,
   },
   {
     id: "dal441",
@@ -120,7 +130,7 @@ const aircraft: AircraftState[] = [
     navigationMode: "ROUTE",
     flightPlan: { origin: "KDFW", actualDestination: "KATL", controllerRelevantDestination: "JEN", exitFix: "JEN", route: ["NELYN", "TRISS", "JEN"], procedureId: "NELYN5-DEMO" },
     nextRouteIndex: 0,
-    performance: jet
+    performance: jet,
   },
   {
     id: "ual822",
@@ -140,8 +150,8 @@ const aircraft: AircraftState[] = [
     navigationMode: "ROUTE",
     flightPlan: { origin: "KDEN", actualDestination: "KATL", controllerRelevantDestination: "CQY", entryFix: "WEST", exitFix: "CQY", route: ["JEN", "CQY", "EAST"] },
     nextRouteIndex: 0,
-    performance: jet
-  }
+    performance: jet,
+  },
 ];
 
 export function createDemoScenario(seed = 938224): SimulationState {
@@ -154,7 +164,7 @@ export function createDemoScenario(seed = 938224): SimulationState {
       { id: "DFW_GND", facilityId: "KDFW", name: "DFW Ground", type: "GROUND", frequency: "121.850", staffingMode: "AI", adjacentPositions: ["DFW_TWR"], controlledRunways: [], displayProfile: "SURFACE" },
       { id: "DFW_TWR", facilityId: "KDFW", name: "DFW Tower", type: "TOWER", frequency: "124.150", staffingMode: "AI", adjacentPositions: ["DFW_GND", "DFW_TRACON"], controlledRunways: ["18R"], displayProfile: "LOCAL" },
       { id: "DFW_TRACON", facilityId: "D10", name: "DFW Approach / Departure", type: "TRACON", frequency: "118.550", staffingMode: "HUMAN", adjacentPositions: ["DFW_TWR", "ZFW_23"], controlledRunways: ["18R"], displayProfile: "STARS" },
-      { id: "ZFW_23", facilityId: "ZFW", name: "Fort Worth Center 23", type: "CENTER", frequency: "132.450", staffingMode: "AI", adjacentPositions: ["DFW_TRACON"], controlledRunways: [], displayProfile: "ERAM" }
+      { id: "ZFW_23", facilityId: "ZFW", name: "Fort Worth Center 23", type: "CENTER", frequency: "132.450", staffingMode: "AI", adjacentPositions: ["DFW_TRACON"], controlledRunways: [], displayProfile: "ERAM" },
     ],
     waypoints: structuredClone(demoWaypoints),
     procedures: structuredClone(demoProcedures),
@@ -163,10 +173,19 @@ export function createDemoScenario(seed = 938224): SimulationState {
     alerts: [],
     terrainMode: "SUBTLE",
     runwayRestrictions: [
-      { runway: "18R", reason: "HEAVY ARRIVAL WAKE", leadWake: "HEAVY", followWake: "MEDIUM", remainingSec: 72 }
+      { runway: "18R", reason: "HEAVY ARRIVAL WAKE", leadWake: "HEAVY", followWake: "MEDIUM", remainingSec: 72 },
     ],
     eventLog: [
-      { id: "scenario-start", atSec: 0, type: "SCENARIO", message: "DFW demo scenario loaded with deterministic seed 938224." }
-    ]
+      { id: "scenario-start", atSec: 0, type: "SCENARIO", message: "DFW demo scenario loaded with deterministic seed 938224." },
+    ],
+    navigationData: {
+      provider: "DEMO",
+      cycle: "FALLBACK",
+      status: "FALLBACK",
+      waypointCount: demoWaypoints.length,
+      procedureCount: demoProcedures.filter((procedure) => procedure.type !== "AIRWAY").length,
+      airwayCount: demoProcedures.filter((procedure) => procedure.type === "AIRWAY").length,
+      diagnostics: ["FAA NASR data has not been loaded yet."],
+    },
   };
 }
