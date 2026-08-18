@@ -55,7 +55,7 @@ export function ControlDeck({
       if (procedure.type === "AIRWAY") return true;
       if (phase === "ARRIVAL" || phase === "APPROACH") return procedure.type === "STAR" || procedure.type === "APPROACH";
       if (phase === "DEPARTURE") return procedure.type === "SID";
-      return procedure.type === "AIRWAY";
+      return false;
     });
   }, [aircraft.flightPhase, procedures]);
 
