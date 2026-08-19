@@ -1,0 +1,121 @@
+/* OpenRC v0.3 radar usability additions. */
+
+.radar-wrap.vector-mode .radar-canvas {
+  cursor: crosshair;
+}
+
+.radar-canvas:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 1px rgba(217, 255, 145, .28);
+}
+
+.scope-tool-strip {
+  position: absolute;
+  z-index: 6;
+  top: 11px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  max-width: calc(100% - 330px);
+  padding: 4px;
+  background: rgba(6, 13, 10, .9);
+  border: 1px solid rgba(49, 84, 69, .85);
+  box-shadow: 0 8px 24px rgba(0,0,0,.22);
+}
+
+.scope-tool-strip > button,
+.waypoint-filter-control button {
+  min-height: 26px;
+  padding: 4px 7px;
+  font: 800 7px ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: .04em;
+  white-space: nowrap;
+}
+
+.scope-tool-strip > button.vector-active {
+  color: #07100d;
+  background: var(--amber);
+  border-color: var(--amber);
+}
+
+.scope-tool-strip kbd,
+.wasd-chip kbd {
+  padding: 1px 3px;
+  color: inherit;
+  background: rgba(255,255,255,.06);
+  border: 1px solid currentColor;
+  border-radius: 2px;
+  font: inherit;
+}
+
+.waypoint-filter-control {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.waypoint-filter-control > span {
+  margin: 0 2px 0 3px;
+  color: var(--muted);
+  font: 800 7px ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: .08em;
+}
+
+.waypoint-filter-control button.active {
+  color: #07100d;
+  background: var(--scope);
+  border-color: var(--scope);
+}
+
+.wasd-chip {
+  padding: 0 4px;
+  color: #799487;
+  font: 750 7px ui-monospace, SFMono-Regular, Menlo, monospace;
+  white-space: nowrap;
+}
+
+.vector-banner {
+  position: absolute;
+  z-index: 6;
+  left: 50%;
+  bottom: 13px;
+  transform: translateX(-50%);
+  padding: 6px 9px;
+  color: #0a100d;
+  background: rgba(217, 255, 145, .92);
+  border: 1px solid var(--scope);
+  font: 850 8px ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: .04em;
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+@media (max-width: 1180px) {
+  .scope-tool-strip {
+    top: 48px;
+    max-width: calc(100% - 30px);
+  }
+  .wasd-chip {
+    display: none;
+  }
+}
+
+@media (max-width: 760px) {
+  .scope-tool-strip {
+    left: 8px;
+    right: 8px;
+    transform: none;
+    overflow-x: auto;
+    justify-content: flex-start;
+  }
+  .waypoint-filter-control {
+    min-width: max-content;
+  }
+  .vector-banner {
+    max-width: calc(100% - 20px);
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+}
