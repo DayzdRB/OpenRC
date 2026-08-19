@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   clamp,
   formatAltitude,
+  headingTo,
   localToLatLon,
   type AircraftState,
   type SimulationState,
@@ -11,14 +12,26 @@ import {
   type Waypoint,
 } from "@openrc/simulation";
 
+export interface AirportRunway {
+  id: string;
+  runwayId: string;
+  ends: [
+    { id: string; latitude: number; longitude: number; position: Vec2 },
+    { id: string; latitude: number; longitude: number; position: Vec2 },
+  ];
+  source?: string;
+}
+
 interface RadarScopeProps {
   state: SimulationState;
   selectedAircraftId: string | null;
   selectedWaypointId: string | null;
+  runways?: AirportRunway[];
   onSelectAircraft: (id: string | null) => void;
   onSelectWaypoint: (id: string | null) => void;
   onCreateWaypoint: (position: Vec2) => void;
   onDirectToWaypoint: (waypointName: string) => void;
+  onVectorHeading: (heading: number) => void;
 }
 
 interface RadarView {
@@ -33,6 +46,14 @@ interface ContextMenuState {
   waypointId?: string;
 }
 
+type WaypointFilter = "OPS" | "TERMINAL" | "ENROUTE" | "NAVAIDS" | "ALL";
+
+interface WaypointGroups {
+  active: Set<string>;
+  terminal: Set<string>;
+  enroute: Set<string>;
+}
+
 const USGS_3DEP = "https://elevation.nationalmap.gov/arcgis/rest/services/3DEPElevation/ImageServer/exportImage";
 
 function defaultRange(state: SimulationState): number {
@@ -43,12 +64,15 @@ export function RadarScope({
   state,
   selectedAircraftId,
   selectedWaypointId,
+  runways = [],
   onSelectAircraft,
   onSelectWaypoint,
   onCreateWaypoint,
   onDirectToWaypoint,
+  onVectorHeading,
 }: RadarScopeProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const scopeHotRef = useRef(false);
   const [size, setSize] = useState({ width: 1000, height: 700 });
   const [view, setView] = useState<RadarView>({ center: { x: 0, y: 0 }, rangeNm: defaultRange(state) });
   const viewRef = useRef(view);
@@ -56,6 +80,13 @@ export function RadarScope({
   const panRef = useRef<{ clientX: number; clientY: number; center: Vec2; scale: number } | null>(null);
   const [terrainUrl, setTerrainUrl] = useState<string | null>(null);
   const [terrainStatus, setTerrainStatus] = useState<"OFF" | "LOADING" | "READY" | "ERROR">("LOADING");
+  const [waypointFilter, setWaypointFilter] = useState<WaypointFilter>("OPS");
+  const [vectorMode, setVectorMode] = useState(false);
+  const [vectorPreview, setVectorPreview] = useState<Vec2 | null>(null);
+
+  const selectedAircraft = state.aircraft.find((aircraft) => aircraft.id === selectedAircraftId);
+  const selectedOwned = selectedAircraft?.controllerPositionId === state.humanPositionId;
+  const waypointGroups = useMemo(() => buildWaypointGroups(state), [state.aircraft, state.procedures]);
 
   useEffect(() => {
     viewRef.current = view;
@@ -66,7 +97,15 @@ export function RadarScope({
     viewRef.current = next;
     setView(next);
     setContextMenu(null);
+    setVectorPreview(null);
   }, [state.humanPositionId]);
+
+  useEffect(() => {
+    if (!selectedOwned) {
+      setVectorMode(false);
+      setVectorPreview(null);
+    }
+  }, [selectedAircraftId, selectedOwned]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -144,6 +183,45 @@ export function RadarScope({
   }, []);
 
   useEffect(() => {
+    const handleKey = (event: KeyboardEvent) => {
+      if (!scopeHotRef.current || event.ctrlKey || event.metaKey || event.altKey) return;
+      if (isTypingTarget(event.target)) return;
+      const key = event.key.toLowerCase();
+
+      if (["w", "a", "s", "d"].includes(key)) {
+        event.preventDefault();
+        const current = viewRef.current;
+        const step = Math.max(0.6, current.rangeNm * (event.shiftKey ? 0.16 : 0.075));
+        const next = {
+          ...current,
+          center: {
+            x: current.center.x + (key === "d" ? step : key === "a" ? -step : 0),
+            y: current.center.y + (key === "w" ? step : key === "s" ? -step : 0),
+          },
+        };
+        viewRef.current = next;
+        setView(next);
+        setContextMenu(null);
+        return;
+      }
+
+      if (key === "v" && selectedAircraft && selectedOwned) {
+        event.preventDefault();
+        setVectorMode((current) => !current);
+        setVectorPreview(null);
+      }
+      if (event.key === "Escape") {
+        setVectorMode(false);
+        setVectorPreview(null);
+        setContextMenu(null);
+      }
+    };
+
+    window.addEventListener("keydown", handleKey);
+    return () => window.removeEventListener("keydown", handleKey);
+  }, [selectedAircraft, selectedOwned]);
+
+  useEffect(() => {
     if (state.terrainMode === "OFF") {
       setTerrainUrl(null);
       setTerrainStatus("OFF");
@@ -179,8 +257,20 @@ export function RadarScope({
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    drawScope(ctx, size.width, size.height, state, selectedAircraftId, selectedWaypointId, view);
-  }, [size, state, selectedAircraftId, selectedWaypointId, view]);
+    drawScope(
+      ctx,
+      size.width,
+      size.height,
+      state,
+      selectedAircraftId,
+      selectedWaypointId,
+      view,
+      waypointFilter,
+      waypointGroups,
+      runways,
+      vectorMode ? vectorPreview : null,
+    );
+  }, [size, state, selectedAircraftId, selectedWaypointId, view, waypointFilter, waypointGroups, runways, vectorMode, vectorPreview]);
 
   const screenToWorld = (clientX: number, clientY: number): Vec2 => {
     const rect = canvasRef.current?.getBoundingClientRect();
@@ -197,12 +287,22 @@ export function RadarScope({
     const rect = canvasRef.current?.getBoundingClientRect();
     const scale = rect ? scaleFor(rect.width, rect.height, viewRef.current.rangeNm) : 5;
     const toleranceNm = 12 / scale;
-    return state.waypoints.find((waypoint) => Math.hypot(waypoint.position.x - world.x, waypoint.position.y - world.y) < toleranceNm);
+    return state.waypoints.find((waypoint) => waypointAllowed(waypoint, waypointFilter, waypointGroups, selectedWaypointId)
+      && Math.hypot(waypoint.position.x - world.x, waypoint.position.y - world.y) < toleranceNm);
   };
 
-  const handleClick = (clientX: number, clientY: number) => {
+  const vectorSelectedAt = (world: Vec2) => {
+    if (!selectedAircraft || !selectedOwned) return false;
+    onVectorHeading(headingTo(selectedAircraft.position, world));
+    setContextMenu(null);
+    return true;
+  };
+
+  const handleClick = (clientX: number, clientY: number, shiftKey: boolean) => {
     setContextMenu(null);
     const world = screenToWorld(clientX, clientY);
+    if ((vectorMode || shiftKey) && vectorSelectedAt(world)) return;
+
     const rect = canvasRef.current?.getBoundingClientRect();
     const scale = rect ? scaleFor(rect.width, rect.height, viewRef.current.rangeNm) : 5;
     const waypoint = findWaypointAt(world);
@@ -220,8 +320,6 @@ export function RadarScope({
     onSelectWaypoint(null);
   };
 
-  const selectedAircraft = state.aircraft.find((aircraft) => aircraft.id === selectedAircraftId);
-  const selectedOwned = selectedAircraft?.controllerPositionId === state.humanPositionId;
   const contextWaypoint = contextMenu?.waypointId
     ? state.waypoints.find((waypoint) => waypoint.id === contextMenu.waypointId)
     : undefined;
@@ -235,7 +333,12 @@ export function RadarScope({
   };
 
   return (
-    <div className="radar-wrap" onClick={() => contextMenu && setContextMenu(null)}>
+    <div
+      className={`radar-wrap ${vectorMode ? "vector-mode" : ""}`}
+      onClick={() => contextMenu && setContextMenu(null)}
+      onMouseEnter={() => { scopeHotRef.current = true; }}
+      onMouseLeave={() => { scopeHotRef.current = false; setVectorPreview(null); }}
+    >
       {terrainUrl && state.terrainMode !== "OFF" && (
         <div
           className={`terrain-raster terrain-${state.terrainMode.toLowerCase()}`}
@@ -246,9 +349,14 @@ export function RadarScope({
       <canvas
         ref={canvasRef}
         className="radar-canvas"
+        tabIndex={0}
         onClick={(event) => {
           event.stopPropagation();
-          handleClick(event.clientX, event.clientY);
+          event.currentTarget.focus({ preventScroll: true });
+          handleClick(event.clientX, event.clientY, event.shiftKey);
+        }}
+        onMouseMove={(event) => {
+          if (vectorMode && selectedAircraft && selectedOwned) setVectorPreview(screenToWorld(event.clientX, event.clientY));
         }}
         onMouseDown={(event) => {
           if (event.button !== 1) return;
@@ -279,15 +387,36 @@ export function RadarScope({
           });
         }}
       />
+
       <div className="scope-corner scope-corner-left">
         <strong>{state.humanPositionId === "ZFW_23" ? "ZFW 23 / ERAM" : "D10 / STARS"}</strong>
         <span>RANGE {view.rangeNm.toFixed(view.rangeNm < 20 ? 1 : 0)} NM</span>
         <span>{terrainStatus === "READY" ? "USGS 3DEP CONTOURS" : terrainStatus === "ERROR" ? "TOPO UNAVAILABLE" : terrainStatus === "LOADING" ? "TOPO LOADING…" : "TERRAIN OFF"}</span>
+        <span>{runways.length > 0 ? `DFW · ${runways.length} FAA RUNWAYS` : "DFW · RUNWAY FALLBACK"}</span>
       </div>
       <div className="scope-corner scope-corner-right">
         <span>SIM {formatClock(state.simTimeSec)}</span>
         <span>{state.paused ? "PAUSED" : "LIVE"}</span>
       </div>
+
+      <div className="scope-tool-strip" onClick={(event) => event.stopPropagation()}>
+        <button
+          className={vectorMode ? "active vector-active" : ""}
+          disabled={!selectedAircraft || !selectedOwned}
+          onClick={() => { setVectorMode((current) => !current); setVectorPreview(null); }}
+          title="Vector selected aircraft. V toggles; Shift-click vectors immediately."
+        >
+          VECTOR <kbd>V</kbd>
+        </button>
+        <div className="waypoint-filter-control" aria-label="Waypoint display filter">
+          <span>FIXES</span>
+          {(["OPS", "TERMINAL", "ENROUTE", "NAVAIDS", "ALL"] as WaypointFilter[]).map((filter) => (
+            <button key={filter} className={waypointFilter === filter ? "active" : ""} onClick={() => setWaypointFilter(filter)}>{filter}</button>
+          ))}
+        </div>
+        <span className="wasd-chip"><kbd>WASD</kbd> PAN</span>
+      </div>
+
       <div className="scope-zoom-controls" onClick={(event) => event.stopPropagation()}>
         <button aria-label="Zoom in" onClick={() => zoomCenter(0.72)}>+</button>
         <button aria-label="Zoom out" onClick={() => zoomCenter(1.38)}>−</button>
@@ -297,6 +426,11 @@ export function RadarScope({
           setView(next);
         }}>RESET VIEW</button>
       </div>
+
+      {vectorMode && selectedAircraft && selectedOwned && (
+        <div className="vector-banner">VECTORING {selectedAircraft.callsign} · CLICK SCOPE TO ASSIGN HEADING · ESC CANCELS</div>
+      )}
+
       {contextMenu && (
         <div className="map-context" style={{ left: contextMenu.x, top: contextMenu.y }} onClick={(event) => event.stopPropagation()}>
           {contextWaypoint ? (
@@ -314,25 +448,16 @@ export function RadarScope({
                   DIRECT {selectedAircraft.callsign} → {contextWaypoint.name}
                 </button>
               )}
-              <button
-                onClick={() => {
-                  onSelectWaypoint(contextWaypoint.id);
-                  setContextMenu(null);
-                }}
-              >
-                Inspect waypoint
-              </button>
+              <button onClick={() => { onSelectWaypoint(contextWaypoint.id); setContextMenu(null); }}>Inspect waypoint</button>
             </>
           ) : (
             <>
-              <button
-                onClick={() => {
-                  onCreateWaypoint(contextMenu.world);
-                  setContextMenu(null);
-                }}
-              >
-                + Create Waypoint
-              </button>
+              {selectedAircraft && selectedOwned && (
+                <button className="direct-context" onClick={() => { vectorSelectedAt(contextMenu.world); setContextMenu(null); }}>
+                  VECTOR {selectedAircraft.callsign} HERE
+                </button>
+              )}
+              <button onClick={() => { onCreateWaypoint(contextMenu.world); setContextMenu(null); }}>+ Create Waypoint</button>
               <span>{contextMenu.world.x.toFixed(1)} / {contextMenu.world.y.toFixed(1)} NM</span>
             </>
           )}
@@ -342,8 +467,41 @@ export function RadarScope({
   );
 }
 
+function isTypingTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  return target.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName);
+}
+
 function scaleFor(width: number, height: number, rangeNm: number): number {
   return Math.min(width, height) / (rangeNm * 2);
+}
+
+function buildWaypointGroups(state: SimulationState): WaypointGroups {
+  const active = new Set<string>();
+  const terminal = new Set<string>();
+  const enroute = new Set<string>();
+
+  for (const aircraft of state.aircraft) {
+    for (const name of aircraft.flightPlan.route) active.add(name);
+  }
+  for (const procedure of state.procedures) {
+    const target = procedure.type === "AIRWAY" ? enroute : terminal;
+    for (const leg of procedure.legs) {
+      if (leg.fromFix) target.add(leg.fromFix);
+      if (leg.toFix) target.add(leg.toFix);
+    }
+  }
+  return { active, terminal, enroute };
+}
+
+function waypointAllowed(waypoint: Waypoint, filter: WaypointFilter, groups: WaypointGroups, selectedId: string | null): boolean {
+  if (waypoint.id === selectedId || waypoint.source === "CUSTOM") return true;
+  if (waypoint.kind === "AIRPORT") return false;
+  if (filter === "ALL") return true;
+  if (filter === "NAVAIDS") return waypoint.kind === "VOR" || waypoint.kind === "NDB";
+  if (filter === "TERMINAL") return groups.terminal.has(waypoint.name) || waypoint.kind === "VOR" || waypoint.kind === "NDB";
+  if (filter === "ENROUTE") return groups.enroute.has(waypoint.name) || waypoint.kind === "VOR" || waypoint.kind === "NDB";
+  return groups.active.has(waypoint.name) || waypoint.kind === "VOR" || waypoint.kind === "NDB";
 }
 
 function buildTerrainUrl(view: RadarView, size: { width: number; height: number }): string {
@@ -380,6 +538,10 @@ function drawScope(
   selectedAircraftId: string | null,
   selectedWaypointId: string | null,
   view: RadarView,
+  waypointFilter: WaypointFilter,
+  waypointGroups: WaypointGroups,
+  runways: AirportRunway[],
+  vectorPreview: Vec2 | null,
 ) {
   ctx.clearRect(0, 0, width, height);
   const scale = scaleFor(width, height, view.rangeNm);
@@ -391,9 +553,13 @@ function drawScope(
   drawRangeRings(ctx, toScreen({ x: 0, y: 0 }), scale, view.rangeNm);
   drawSector(ctx, toScreen, scale, state);
   drawProcedures(ctx, width, height, state, toScreen);
-  drawAirport(ctx, toScreen({ x: 0, y: 0 }), scale);
-  drawWaypoints(ctx, width, height, state.waypoints, toScreen, selectedWaypointId, view.rangeNm);
+  drawAirport(ctx, toScreen, scale, runways, view.rangeNm);
+  drawWaypoints(ctx, width, height, state.waypoints, toScreen, selectedWaypointId, view.rangeNm, waypointFilter, waypointGroups);
   drawAircraft(ctx, width, height, state.aircraft, toScreen, selectedAircraftId, state);
+  if (vectorPreview && selectedAircraftId) {
+    const aircraft = state.aircraft.find((item) => item.id === selectedAircraftId);
+    if (aircraft) drawVectorPreview(ctx, aircraft, vectorPreview, toScreen);
+  }
 }
 
 function drawRangeRings(ctx: CanvasRenderingContext2D, center: Vec2, scale: number, range: number) {
@@ -465,20 +631,62 @@ function drawProcedures(
   ctx.restore();
 }
 
-function drawAirport(ctx: CanvasRenderingContext2D, screen: Vec2, scale: number) {
+function drawAirport(
+  ctx: CanvasRenderingContext2D,
+  toScreen: (position: Vec2) => Vec2,
+  scale: number,
+  runways: AirportRunway[],
+  rangeNm: number,
+) {
+  if (runways.length === 0) {
+    const screen = toScreen({ x: 0, y: 0 });
+    ctx.save();
+    ctx.strokeStyle = "rgba(183, 207, 190, 0.72)";
+    ctx.lineWidth = 2;
+    const runway = Math.max(14, 4.8 * scale);
+    ctx.beginPath();
+    ctx.moveTo(screen.x - 3, screen.y - runway);
+    ctx.lineTo(screen.x - 3, screen.y + runway);
+    ctx.moveTo(screen.x + 3, screen.y - runway);
+    ctx.lineTo(screen.x + 3, screen.y + runway);
+    ctx.stroke();
+    ctx.fillStyle = "rgba(183, 207, 190, 0.72)";
+    ctx.font = "10px ui-monospace, monospace";
+    ctx.fillText("DFW", screen.x + 8, screen.y - 8);
+    ctx.restore();
+    return;
+  }
+
   ctx.save();
-  ctx.strokeStyle = "rgba(183, 207, 190, 0.72)";
-  ctx.lineWidth = 2;
-  const runway = Math.max(14, 4.8 * scale);
-  ctx.beginPath();
-  ctx.moveTo(screen.x - 3, screen.y - runway);
-  ctx.lineTo(screen.x - 3, screen.y + runway);
-  ctx.moveTo(screen.x + 3, screen.y - runway);
-  ctx.lineTo(screen.x + 3, screen.y + runway);
-  ctx.stroke();
-  ctx.fillStyle = "rgba(183, 207, 190, 0.72)";
-  ctx.font = "10px ui-monospace, monospace";
-  ctx.fillText("DFW", screen.x + 8, screen.y - 8);
+  ctx.strokeStyle = "rgba(197, 222, 205, 0.78)";
+  ctx.fillStyle = "rgba(197, 222, 205, 0.72)";
+  ctx.lineCap = "butt";
+  ctx.font = "8px ui-monospace, monospace";
+  for (const runway of runways) {
+    const a = toScreen(runway.ends[0].position);
+    const b = toScreen(runway.ends[1].position);
+    const dx = b.x - a.x;
+    const dy = b.y - a.y;
+    const length = Math.max(1, Math.hypot(dx, dy));
+    const nx = -dy / length;
+    const ny = dx / length;
+    const halfWidth = Math.max(1.1, Math.min(3.2, scale * 0.045));
+    ctx.lineWidth = Math.max(1.2, Math.min(4, scale * 0.08));
+    ctx.beginPath();
+    ctx.moveTo(a.x + nx * halfWidth, a.y + ny * halfWidth);
+    ctx.lineTo(b.x + nx * halfWidth, b.y + ny * halfWidth);
+    ctx.moveTo(a.x - nx * halfWidth, a.y - ny * halfWidth);
+    ctx.lineTo(b.x - nx * halfWidth, b.y - ny * halfWidth);
+    ctx.stroke();
+
+    if (rangeNm < 34) {
+      ctx.fillText(runway.ends[0].id, a.x + nx * 7, a.y + ny * 7);
+      ctx.fillText(runway.ends[1].id, b.x + nx * 7, b.y + ny * 7);
+    }
+  }
+  const center = toScreen({ x: 0, y: 0 });
+  ctx.font = "9px ui-monospace, monospace";
+  ctx.fillText("DFW", center.x + 6, center.y - 6);
   ctx.restore();
 }
 
@@ -490,16 +698,21 @@ function drawWaypoints(
   toScreen: (position: Vec2) => Vec2,
   selectedId: string | null,
   rangeNm: number,
+  filter: WaypointFilter,
+  groups: WaypointGroups,
 ) {
   ctx.save();
   ctx.font = "10px ui-monospace, monospace";
+  const labelCells = new Set<string>();
+  const cellSize = rangeNm > 90 ? 54 : rangeNm > 45 ? 44 : 34;
+
   for (const waypoint of waypoints) {
-    if (waypoint.kind === "AIRPORT") continue;
+    if (!waypointAllowed(waypoint, filter, groups, selectedId)) continue;
     const p = toScreen(waypoint.position);
     if (!pointVisible(p, width, height, 30)) continue;
     const selected = waypoint.id === selectedId;
-    const important = selected || waypoint.source === "CUSTOM" || waypoint.kind === "VOR" || waypoint.kind === "NDB";
-    if (rangeNm > 135 && !important) continue;
+    const important = selected || waypoint.source === "CUSTOM" || waypoint.kind === "VOR" || waypoint.kind === "NDB" || groups.active.has(waypoint.name);
+    if (rangeNm > 160 && !important && filter !== "ALL") continue;
 
     ctx.strokeStyle = waypoint.source === "CUSTOM" ? "rgba(245, 199, 96, 0.95)" : waypoint.source === "FAA" ? "rgba(139, 194, 166, 0.64)" : "rgba(138, 180, 158, 0.52)";
     ctx.fillStyle = selected ? "rgba(255, 224, 139, 0.95)" : waypoint.source === "CUSTOM" ? "rgba(245, 199, 96, 0.9)" : "rgba(138, 180, 158, 0.66)";
@@ -523,7 +736,13 @@ function drawWaypoints(
       ctx.closePath();
       ctx.stroke();
     }
-    if (rangeNm < 100 || important) ctx.fillText(waypoint.name, p.x + 7, p.y - 5);
+
+    const cell = `${Math.floor(p.x / cellSize)}:${Math.floor(p.y / cellSize)}`;
+    const showLabel = important || rangeNm < 36 || (rangeNm < 90 && !labelCells.has(cell));
+    if (showLabel) {
+      ctx.fillText(waypoint.name, p.x + 7, p.y - 5);
+      labelCells.add(cell);
+    }
   }
   ctx.restore();
 }
@@ -569,6 +788,40 @@ function drawAircraft(
       ctx.stroke();
     }
   }
+  ctx.restore();
+}
+
+function drawVectorPreview(
+  ctx: CanvasRenderingContext2D,
+  aircraft: AircraftState,
+  target: Vec2,
+  toScreen: (position: Vec2) => Vec2,
+) {
+  const a = toScreen(aircraft.position);
+  const b = toScreen(target);
+  const heading = Math.round(headingTo(aircraft.position, target));
+  ctx.save();
+  ctx.strokeStyle = "rgba(217, 255, 145, .9)";
+  ctx.fillStyle = "rgba(217, 255, 145, .95)";
+  ctx.lineWidth = 1.5;
+  ctx.setLineDash([7, 5]);
+  ctx.beginPath();
+  ctx.moveTo(a.x, a.y);
+  ctx.lineTo(b.x, b.y);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.beginPath();
+  ctx.arc(b.x, b.y, 5, 0, Math.PI * 2);
+  ctx.stroke();
+  const label = `${String(heading || 360).padStart(3, "0")}°`;
+  ctx.font = "800 11px ui-monospace, monospace";
+  const width = ctx.measureText(label).width + 12;
+  ctx.fillStyle = "rgba(6, 12, 9, .9)";
+  ctx.fillRect(b.x + 8, b.y - 18, width, 18);
+  ctx.strokeStyle = "rgba(217, 255, 145, .7)";
+  ctx.strokeRect(b.x + 8, b.y - 18, width, 18);
+  ctx.fillStyle = "rgba(217, 255, 145, .95)";
+  ctx.fillText(label, b.x + 14, b.y - 5);
   ctx.restore();
 }
 
