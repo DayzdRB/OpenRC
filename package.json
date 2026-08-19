@@ -6,9 +6,9 @@
     "packages/*"
   ],
   "scripts": {
-    "faa:sync": "node scripts/sync-faa.mjs",
-    "dev": "node scripts/sync-faa.mjs --best-effort && next dev --turbopack",
-    "build": "node scripts/sync-faa.mjs --best-effort && next build",
+    "faa:sync": "node scripts/sync-faa.mjs && node scripts/sync-dfw-runways.mjs",
+    "dev": "node scripts/sync-faa.mjs --best-effort && node scripts/sync-dfw-runways.mjs --best-effort && next dev --turbopack",
+    "build": "node scripts/sync-faa.mjs --best-effort && node scripts/sync-dfw-runways.mjs --best-effort && next build",
     "start": "next start"
   },
   "dependencies": {
