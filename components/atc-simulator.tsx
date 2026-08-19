@@ -15,22 +15,24 @@ import {
   type Vec2,
 } from "@openrc/simulation";
 import { ControlDeck } from "./control-deck";
-import { RadarScope } from "./radar-scope";
+import { RadarScope, type AirportRunway } from "./radar-scope";
 
 const STORAGE_KEY = "openrc.demo.scenario.v2";
+type OpenRcNavigationDataset = NormalizedNavigationDataset & { runways?: AirportRunway[] };
 
 export function AtcSimulator() {
   const engineRef = useRef<SimulationEngine | null>(null);
   if (engineRef.current === null) engineRef.current = new SimulationEngine();
   const engine = engineRef.current;
-  const faaDatasetRef = useRef<NormalizedNavigationDataset | null>(null);
+  const faaDatasetRef = useRef<OpenRcNavigationDataset | null>(null);
   const radarTickRef = useRef(0);
 
   const [state, setState] = useState<SimulationState>(() => engine.snapshot());
+  const [runways, setRunways] = useState<AirportRunway[]>([]);
   const [selectedAircraftId, setSelectedAircraftId] = useState<string | null>("fdx1205");
   const [selectedWaypointId, setSelectedWaypointId] = useState<string | null>(null);
   const [waypointNameDraft, setWaypointNameDraft] = useState("");
-  const [notice, setNotice] = useState("Simulation initialized. Select an aircraft, then right-click a fix to issue Direct-To.");
+  const [notice, setNotice] = useState("Simulation initialized. Select an aircraft, then use VECTOR or right-click a fix for Direct-To.");
   const [procedureId, setProcedureId] = useState("JEN9-DEMO");
   const [procedureNameDraft, setProcedureNameDraft] = useState("");
   const [procedureFixDraft, setProcedureFixDraft] = useState("JEN");
@@ -42,14 +44,15 @@ export function AtcSimulator() {
     fetch("/data/faa/dfw.json", { signal: controller.signal, cache: "no-store" })
       .then((response) => {
         if (!response.ok) throw new Error(`FAA dataset HTTP ${response.status}`);
-        return response.json() as Promise<NormalizedNavigationDataset>;
+        return response.json() as Promise<OpenRcNavigationDataset>;
       })
       .then((dataset) => {
         faaDatasetRef.current = dataset;
         engine.importNavigationData(dataset);
+        setRunways(dataset.runways ?? []);
         setNotice(
           dataset.meta.status === "READY"
-            ? `FAA NASR ${dataset.meta.cycle} loaded: ${dataset.meta.waypointCount} nearby navigation points and ${dataset.meta.airwayCount} airways.`
+            ? `FAA NASR ${dataset.meta.cycle} loaded: ${dataset.meta.waypointCount} navigation points, ${dataset.meta.airwayCount} airways, and ${dataset.runways?.length ?? 0} DFW runway segments.`
             : "FAA sync was unavailable during this build. OpenRC is using its clearly marked demo fallback.",
         );
         refresh();
@@ -113,6 +116,14 @@ export function AtcSimulator() {
     refresh();
   };
 
+  const vectorSelectedHeading = (heading: number) => {
+    if (!selectedAircraft || !selectedOwned) return;
+    engine.issueHeading(selectedAircraft.id, heading);
+    const assigned = ((Math.round(heading) % 360) + 360) % 360 || 360;
+    setNotice(`${selectedAircraft.callsign} vectored heading ${String(assigned).padStart(3, "0")}.`);
+    refresh();
+  };
+
   const assignSelectedProcedure = (assignedProcedureId: string) => {
     if (!selectedAircraft) return;
     const procedure = state.procedures.find((item) => item.id === assignedProcedureId);
@@ -135,7 +146,8 @@ export function AtcSimulator() {
     try {
       engine.load(JSON.parse(raw) as SimulationState);
       if (faaDatasetRef.current) engine.importNavigationData(faaDatasetRef.current);
-      setNotice("Saved scenario restored. Current FAA navigation overlay reapplied.");
+      setRunways(faaDatasetRef.current?.runways ?? []);
+      setNotice("Saved scenario restored. Current FAA navigation and runway overlays reapplied.");
       refresh();
     } catch {
       setNotice("The saved scenario could not be loaded.");
@@ -145,9 +157,10 @@ export function AtcSimulator() {
   const resetScenario = () => {
     engine.reset();
     if (faaDatasetRef.current) engine.importNavigationData(faaDatasetRef.current);
+    setRunways(faaDatasetRef.current?.runways ?? []);
     setSelectedAircraftId("fdx1205");
     setSelectedWaypointId(null);
-    setNotice("Scenario reset. Current navigation dataset retained.");
+    setNotice("Scenario reset. Current navigation and runway dataset retained.");
     refresh();
   };
 
@@ -219,7 +232,7 @@ export function AtcSimulator() {
           <span className="brand-mark">ORC</span>
           <div>
             <strong>OpenRC</strong>
-            <span>Open Radar Control · vertical slice 0.2</span>
+            <span>Open Radar Control · vertical slice 0.3</span>
           </div>
         </div>
         <div className="position-switch" aria-label="Player position">
@@ -243,7 +256,7 @@ export function AtcSimulator() {
         <span>{state.alerts.length} CONFLICT{state.alerts.length === 1 ? "" : "S"}</span>
         <span className={state.navigationData.status === "READY" ? "faa-ready" : "demo-warning"}>
           {state.navigationData.status === "READY"
-            ? `${state.navigationData.provider} · ${state.navigationData.cycle} · ${state.navigationData.waypointCount} WPTS`
+            ? `${state.navigationData.provider} · ${state.navigationData.cycle} · ${state.navigationData.waypointCount} WPTS · ${runways.length || "—"} RWYS`
             : "DEMO NAV FALLBACK · FAA SYNC PENDING"}
         </span>
       </section>
@@ -252,6 +265,7 @@ export function AtcSimulator() {
         <section className="scope-panel">
           <RadarScope
             state={state}
+            runways={runways}
             selectedAircraftId={selectedAircraftId}
             selectedWaypointId={selectedWaypointId}
             onSelectAircraft={(id) => {
@@ -261,6 +275,7 @@ export function AtcSimulator() {
             onSelectWaypoint={setSelectedWaypointId}
             onCreateWaypoint={createWaypoint}
             onDirectToWaypoint={directSelectedTo}
+            onVectorHeading={vectorSelectedHeading}
           />
           <div className="scope-toolbar">
             <div className="terrain-control">
@@ -269,7 +284,7 @@ export function AtcSimulator() {
                 <button key={mode} className={state.terrainMode === mode ? "active" : ""} onClick={() => { engine.setTerrainMode(mode); refresh(); }}>{mode}</button>
               ))}
             </div>
-            <div className="scope-hint">Wheel = smooth zoom · Middle-drag = pan · Right-click fix = Direct-To · Right-click empty map = Create Waypoint</div>
+            <div className="scope-hint">WASD = pan · Wheel = zoom · V / VECTOR = map vectoring · Shift-click = quick vector · Right-click fix = Direct-To</div>
           </div>
         </section>
 
@@ -332,7 +347,7 @@ export function AtcSimulator() {
                   </div>
                 )}
               </>
-            ) : <p className="empty-state">Select an aircraft on the scope or from a strip. Then use the direct manipulation controls here.</p>}
+            ) : <p className="empty-state">Select an aircraft on the scope or from a strip. Then use VECTOR on the scope or the direct manipulation controls here.</p>}
           </section>
         </aside>
       </div>
@@ -385,7 +400,7 @@ export function AtcSimulator() {
                 </button>
               )}
             </>
-          ) : <p className="quiet-state">Left-click any fix to inspect it. Right-click empty scope to create a custom waypoint.</p>}
+          ) : <p className="quiet-state">Use the FIXES presets on the scope to declutter by task. Left-click a displayed fix to inspect it.</p>}
         </section>
 
         <section className="lower-card procedure-card">
